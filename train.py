@@ -4,7 +4,7 @@ import ujson
 from typing import Any
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils import clip_grad_norm_
-from LSTMWordlEncoder import LSTMWorldModel, KLregularizedLogLikelihoodLoss, detach, criterion
+from LSTMWordlEncoder import LSTMWorldModel, KLregularizedLogLikelihoodLoss, detach, criterion, gaussian_ll_loss
 
 # TODO: Add argument parsing to set training-hyper params
 
@@ -33,7 +33,7 @@ class AerialGymTrajDataset(Dataset):
 
 device = torch.device("cuda:0")
 BATCH_SIZE = 500
-NUM_EPOCHS = 1000
+NUM_EPOCHS = 10
 SEQ_LENGTH = 32 # Sequence length
 TRAJ_LENGTH = 97 # Trajectoy length
 
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     dataset = AerialGymTrajDataset('/home/mathias/dev/aerial_gym_simulator/aerial_gym/rl_training/rl_games/trajectories.jsonl', device)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True) 
     model = LSTMWorldModel(input_dim=148, latent_dim=128, hidden_dim=1024, n_gaussians=2).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=10e-3)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", patience=2)
 
 
@@ -62,7 +62,7 @@ if __name__ == "__main__":
                 
                 model.zero_grad()
                 loss.backward()
-                clip_grad_norm_(model.parameters(), 0.5)
+                clip_grad_norm_(model.parameters(), 2.0)
                 optimizer.step()
 
             print ('Epoch [{}/{}], Loss: {:.4f}'.format(epoch, NUM_EPOCHS, loss.item()))

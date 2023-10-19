@@ -36,7 +36,7 @@ class LSTMWorldModel(nn.Module):
         sigma = sigma.view(-1, rollout_length, self.n_gaussians, self.latent_dim)
 
         sigma = torch.exp(sigma) # Ensure valid values for the normal dist
-        pi = torch.nn.functional.log_softmax(pi, -1)
+        pi = torch.nn.functional.softmax(pi, -1)
     
         return pi, mu, sigma
     
@@ -64,17 +64,24 @@ def detach(states: torch.Tensor) -> List[torch.Tensor]:
     """
     return [state.detach() for state in states]
 
-def mdn_loss_fn(y, logpi, mu, sigma):
-    z_score = (y.unsqueeze(2) - mu) / sigma
-    normal_loglik = (
-        -1/2*torch.einsum("bsdc, bsdc ->bsd", z_score, z_score)
-        -torch.sum(torch.log(sigma), dim=-1)
-    )
-    loglik = torch.logsumexp(logpi + normal_loglik, dim=-1)
-    loglik = torch.sum(loglik, dim=-1)
-    loglik = loglik.mean()
-    return -loglik
+def mdn_loss_fn(y, pi, mu, sigma):
+    m = torch.distributions.Normal(loc=mu, scale=sigma)
+    loss = torch.exp(m.log_prob(y.unsqueeze(2)))
+    loss = torch.sum(torch.mul(loss, pi.unsqueeze(-1)), dim=2)
+    loss = -torch.log(loss + 10e-5)
+    return loss.mean()
 
 
 def criterion(y, pi, mu, sigma):
     return mdn_loss_fn(y, pi, mu, sigma)
+
+def gaussian_ll_loss(targets, logpi, mu, sigma):
+    import torch.distributions.normal as MVN
+    
+    targets = targets.unsqueeze(2)
+    normal_dists = torch.distributions.Normal(mu, sigma)
+    print(torch.exp(logpi.unsqueeze(-1)).size())
+
+    likelihood = torch.log(torch.exp(logpi.unsqueeze(-1))*torch.exp(normal_dists.log_prob(targets)) + 0.0001)
+
+    return -likelihood.mean()
