@@ -2,7 +2,7 @@ import torch
 import ujson
 
 from torch.utils.data import Dataset, random_split
-from typing import Literal, List
+from typing import Literal, List, Tuple
 
 States = Literal[
     "full state",
@@ -15,11 +15,12 @@ States = Literal[
 
 # The state is logged as 13 element vector in the dataset
 StateIndices = {
-    "full state": [0, 12],
-    "position": [0, 3],
-    "attitude": [3, 7],
-    "linear velocities": [7, 10],
-    "angular velocities": [10, 13],
+    "full state": [0, 16],
+    "goal_position": [0, 3],
+    "position": [3, 6],
+    "attitude": [6, 10],
+    "linear velocities": [10, 13],
+    "angular velocities": [13, 16],
 }
 
 
@@ -38,42 +39,43 @@ class AerialGymTrajDataset(Dataset):
         print("===DATASET LOADED===")
 
         self.device = device
-
         self.actions = actions
         self.states = states
-
-        # Compute the train and val splits
-        self.validation_split = validation_split
-        self.total_samples = len(self.lines)
-        self.train_len = int(self.total_samples * (1 - validation_split))
-        self.val_len = self.total_samples - self.train_len
-
-        self.dataset = self.split_dataset()
 
     def __len__(self) -> int:
         return len(self.lines)
 
-    def split_dataset(self):
-        train_data, val_data = random_split(self, [self.train_len, self.val_len])
-        return train_data, val_data
-
     def __getitem__(self, idx) -> torch.tensor:
-        json_object = ujson.loads(self.lines[self.dataset.indices[idx]])
+        json_object = ujson.loads(self.lines[idx])
 
         latents = [torch.tensor(json_object["latents"], device=self.device)]
+        # print(latents[0].size())
         actions = (
             [torch.tensor(json_object["action"], device=self.device)]
-            if self.states
+            if self.actions
             else []
         )
         states = [
             torch.tensor(
-                json_object["states"][StateIndices[state][0] : StateIndices[state][-1]],
+                json_object["states"],
                 device=self.device,
-            )
-            for state in states
+            )[:, StateIndices[state][0] : StateIndices[state][1]]
+            for state in self.states
         ]
 
         item = torch.cat(latents + states + actions, 1)
 
         return item
+
+
+def split_dataset(
+    dataset: AerialGymTrajDataset, val_split: float
+) -> Tuple[AerialGymTrajDataset, ...]:  # 2 tuple
+    # Compute the train and val splits
+
+    total_samples = len(dataset.lines)
+    train_len = int(total_samples * (1 - val_split))
+    val_len = total_samples - train_len
+
+    train_data, val_data = random_split(dataset, [train_len, val_len])
+    return train_data, val_data

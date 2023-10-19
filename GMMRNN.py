@@ -13,7 +13,12 @@ class GMMRNN(nn.Module):
     """
 
     def __init__(
-        self, input_dim=128, latent_dim: int = 128, hidden_dim: int = 256, n_gaussians=5
+        self,
+        input_dim=128,
+        latent_dim: int = 128,
+        hidden_dim: int = 256,
+        n_gaussians=5,
+        device: str = "cuda:0",
     ) -> None:
         super(GMMRNN, self).__init__()
         self.latent_dim = latent_dim
@@ -21,9 +26,11 @@ class GMMRNN(nn.Module):
         self.n_gaussians = n_gaussians
 
         self.lstm = nn.LSTM(input_dim, hidden_dim, 1, batch_first=True)
-        self.fc_pi = nn.Linear(hidden_dim, n_gaussians)
-        self.fc_mu = nn.Linear(hidden_dim, n_gaussians * latent_dim)
-        self.fc_sigma = nn.Linear(hidden_dim, n_gaussians * latent_dim)
+        self.fc1 = nn.Linear(hidden_dim, n_gaussians)
+        self.fc2 = nn.Linear(hidden_dim, n_gaussians * latent_dim)
+        self.fc3 = nn.Linear(hidden_dim, n_gaussians * latent_dim)
+
+        self.device = torch.device(device)
 
     def forward(
         self, x: torch.Tensor, h: Optional[torch.Tensor] = None
@@ -37,7 +44,7 @@ class GMMRNN(nn.Module):
     ) -> Tuple[torch.Tensor, ...]:  # 3-tuple
         sequence_length = y.size(1)
 
-        pi, mu, sigma = self.fc_pi(y), self.fc_mu(y), self.fc_sigma(y)
+        pi, mu, sigma = self.fc1(y), self.fc2(y), self.fc3(y)
 
         pi = pi.view(-1, sequence_length, self.n_gaussians)
         mu = mu.view(-1, sequence_length, self.n_gaussians, self.latent_dim)
@@ -61,12 +68,12 @@ class GMMRNN(nn.Module):
         mu: torch.tensor,
         sigma: torch.tensor,
     ) -> float:
-        beta_kl = 0.1  # weight of the KL divergence loss term
+        # beta_kl = 0.1  # weight of the KL divergence loss term
 
         loglik_loss = gaussian_ll_loss(targets, logpi, mu, sigma)
-        kl_loss = KL_divergence_loss(logpi, mu, sigma)
+        # kl_loss = KL_divergence_loss(logpi, mu, sigma)
 
-        total_loss = loglik_loss + kl_loss
+        total_loss = loglik_loss
         return total_loss
 
 

@@ -23,17 +23,12 @@ def gaussian_ll_loss(
         - mu  # (batch, seq_l, num_gaussians, latent_dim)
     ) / sigma  # (batch, seq_l, num_gaussians, latent_dim)
 
-    normal_loglik = (
-        -1
-        / 2
-        * (
-            torch.einsum("bsdc, bsdc ->bsd", z_score, z_score)
-            - torch.sum(torch.log(sigma), dim=-1)
-        )
-    )
+    normal_loglik = -1 / 2 * torch.einsum(
+        "bsdc, bsdc ->bsd", z_score, z_score
+    ) - torch.sum(torch.log(sigma), dim=-1)
 
-    loglik = (
-        1 / logpi.size(1) * torch.logsumexp(logpi + normal_loglik, dim=2)
+    loglik = torch.logsumexp(
+        logpi + normal_loglik, dim=2
     )  # GMM LL normalized by sequence length
 
     loglik = loglik.mean()
