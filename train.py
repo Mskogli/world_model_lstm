@@ -66,8 +66,8 @@ if __name__ == "__main__":
                 targets = batch[:, (i + 1) : (i + 1) + seq_length, :128]
 
                 # Forward pass
-                hidden = detach(hidden)
-                (pi, mu, sigma), hidden = model(inputs, hidden)
+                hidden = detach(hidden)  # Truncated backprop trough time
+                (logpi, mu, sigma), hidden = model(inputs, hidden)
                 loss = model.loss_criterion(targets, logpi, mu, sigma)
 
                 model.zero_grad()

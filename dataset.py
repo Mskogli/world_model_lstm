@@ -2,6 +2,25 @@ import torch
 import ujson
 
 from torch.utils.data import Dataset, random_split
+from typing import Literal, List
+
+States = Literal[
+    "full state",
+    "position",
+    "attitude",
+    "linear velocities",
+    "angular velocities",
+    "actions",
+]
+
+# The state is logged as 13 element vector in the dataset
+StateIndices = {
+    "full state": [0, 12],
+    "position": [0, 3],
+    "attitude": [3, 7],
+    "linear velocities": [7, 10],
+    "angular velocities": [10, 13],
+}
 
 
 class AerialGymTrajDataset(Dataset):
@@ -10,13 +29,18 @@ class AerialGymTrajDataset(Dataset):
         json_path: str,
         device: str,
         validation_split: float = 0.1,
+        actions: bool = False,
+        states: List[States] = None,
     ) -> None:
+        print("===LOADING DATASET===")
         with open(json_path) as file:
-            print("===LOADING DATASET...===")
             self.lines = file.readlines()
-            print("===DATASET LOADED!===")
+        print("===DATASET LOADED===")
 
         self.device = device
+
+        self.actions = actions
+        self.states = states
 
         # Compute the train and val splits
         self.validation_split = validation_split
@@ -35,10 +59,21 @@ class AerialGymTrajDataset(Dataset):
 
     def __getitem__(self, idx) -> torch.tensor:
         json_object = ujson.loads(self.lines[self.dataset.indices[idx]])
-        latents = torch.tensor(json_object["latents"], device=self.device)
-        states = torch.tensor(json_object["states"], device=self.device)
-        actions = torch.tensor(json_object["action"], device=self.device)
 
-        item = torch.cat((latents, states, actions), 1)
+        latents = [torch.tensor(json_object["latents"], device=self.device)]
+        actions = (
+            [torch.tensor(json_object["action"], device=self.device)]
+            if self.states
+            else []
+        )
+        states = [
+            torch.tensor(
+                json_object["states"][StateIndices[state][0] : StateIndices[state][-1]],
+                device=self.device,
+            )
+            for state in states
+        ]
 
-        return torch.tensor(item, device=self.device)
+        item = torch.cat(latents + states + actions, 1)
+
+        return item
