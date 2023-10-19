@@ -61,5 +61,3 @@ if __name__ == "__main__":
     ax2.set_title("Pred Depth Image")
     plt.imshow(pred_depth_img.view(270, 480).cpu().detach().numpy())
     plt.show()
-
-# %%
