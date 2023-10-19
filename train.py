@@ -23,7 +23,7 @@ def parse_arguments():
         "--seq_length", type=int, default=32, help="Length of input sequences"
     )
     parser.add_argument(
-        "--num_epochs", type=int, default=10, help="Number of training epochs"
+        "--num_epochs", type=int, default=100, help="Number of training epochs"
     )
     parser.add_argument(
         "--device", type=str, default="cpu", help="Training device, e.g. cuda:0"
