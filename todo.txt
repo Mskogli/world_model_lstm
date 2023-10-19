@@ -1,0 +1,3 @@
+- [x] Function for sampling GMMs
+- [ ] Better test function with vizualization
+- [ ] Debugging

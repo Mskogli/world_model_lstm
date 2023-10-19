@@ -1,70 +1,111 @@
 import torch
-import ujson
+import argparse
 
-from typing import Any
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_
-from LSTMWordlEncoder import LSTMWorldModel, KLregularizedLogLikelihoodLoss, detach, criterion
 
-# TODO: Add argument parsing to set training-hyper params
+from GMMRNN import GMMRNN, detach
+from dataset import AerialGymTrajDataset
 
-class AerialGymTrajDataset(Dataset):
-    def __init__(self, json_path: str, device: str) -> None:
-        with open(json_path) as file:
-            print("===LOADING DATASET...===")
-            self.lines = file.readlines()
-            print("===DATASET LOADED===")
-            self.device = device
 
-    def __len__(self) -> int:
-        return len(self.lines)
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Script for training a model with custom settings."
+    )
 
-    def __getitem__(self, idx) -> Any:
-        json_object = ujson.loads(self.lines[idx])
-        latents = torch.tensor(json_object["latents"], device=self.device) 
-        states = torch.tensor(json_object["states"], device=self.device)
-        actions = torch.tensor(json_object["action"], device=self.device)
+    # Add arguments with default values
+    parser.add_argument(
+        "--batch_size", type=int, default=500, help="Batch size for training"
+    )
+    parser.add_argument(
+        "--seq_length", type=int, default=32, help="Length of input sequences"
+    )
+    parser.add_argument(
+        "--num_epochs", type=int, default=10, help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--device", type=str, default="cpu", help="Training device, e.g. cuda:0"
+    )
+    parser.add_argument("--traj_length", type=int, help="Trajectory length")
 
-        item = torch.cat((latents, states, actions), 1)
+    args = parser.parse_args()
+    return args
 
-        if len(item) == 97:
-            return torch.tensor(item, device=self.device)
-        return torch.zeros((97, 132), device=self.device)
-
-device = torch.device("cuda:0")
-BATCH_SIZE = 500
-NUM_EPOCHS = 1000
-SEQ_LENGTH = 32 # Sequence length
-TRAJ_LENGTH = 97 # Trajectoy length
 
 if __name__ == "__main__":
-    dataset = AerialGymTrajDataset('/home/mathias/dev/aerial_gym_simulator/aerial_gym/rl_training/rl_games/trajectories.jsonl', device)
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True) 
-    model = LSTMWorldModel(input_dim=148, latent_dim=128, hidden_dim=1024, n_gaussians=2).to(device)
+    args = parse_arguments()
+    batch_size, seq_length, num_epochs, device, traj_length = (
+        args.batch_size,
+        args.seq_length,
+        args.num_epochs,
+        torch.device(args.device),
+        args.traj_length,
+    )
+
+    dataset = AerialGymTrajDataset(
+        "/home/mathias/dev/aerial_gym_simulator/aerial_gym/rl_training/rl_games/trajectories.jsonl",
+        device,
+    )
+    train_loader = DataLoader(dataset.dataset[0], batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(dataset.dataset[1], batch_size=batch_size, shuffle=True)
+
+    model = GMMRNN(input_dim=148, latent_dim=128, hidden_dim=1024, n_gaussians=2).to(
+        device
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", patience=2)
 
+    min_val_loss = torch.inf
 
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(num_epochs):
+        for batch in train_loader:
+            hidden = GMMRNN.init_hidden_state(batch.size(0))
 
-        for batch in dataloader:
-            hidden = (torch.zeros(1, batch.size(0), 1024).to(device),
-                torch.zeros(1, batch.size(0), 1024).to(device))
-
-            for i in range(0, TRAJ_LENGTH - SEQ_LENGTH, SEQ_LENGTH):
-                inputs = batch[:, i:i + SEQ_LENGTH, :]
-                targets = batch[:, (i + 1):(i + 1) + SEQ_LENGTH, :128]
+            for i in range(0, traj_length - seq_length, seq_length):
+                inputs = batch[:, i : i + seq_length, :]
+                targets = batch[:, (i + 1) : (i + 1) + seq_length, :128]
 
                 # Forward pass
-                hidden = detach(hidden)   
+                hidden = detach(hidden)
                 (pi, mu, sigma), hidden = model(inputs, hidden)
-                loss = criterion(targets, pi, mu, sigma)
-                
+                loss = model.loss_criterion(targets, logpi, mu, sigma)
+
                 model.zero_grad()
                 loss.backward()
-                clip_grad_norm_(model.parameters(), 0.5)
+                clip_grad_norm_(model.parameters(), 2)  # 0.5
                 optimizer.step()
 
-            print ('Epoch [{}/{}], Loss: {:.4f}'.format(epoch, NUM_EPOCHS, loss.item()))
+            print(
+                "Epoch [{}/{}], train loss: {:.4f}".format(
+                    epoch, num_epochs, loss.item()
+                )
+            )
 
-    torch.save(model.state_dict(), "model.pth")
+        if epoch % 2 == 0:
+            total_val_loss = 0
+            model.eval()
+            with torch.no_grad():
+                for val_batch in val_loader:
+                    val_hidden = GMMRNN.init_hidden_state(val_batch.size(0))
+                    for i in range(0, traj_length - seq_length, seq_length):
+                        val_inputs = batch[:, i : i + seq_length, :]
+                        val_targets = batch[:, (i + 1) : (i + 1) + seq_length, :128]
+
+                        val_hidden = detach(val_hidden)
+                        (val_pi, val_mu, val_sigma), val_hidden = model(
+                            val_inputs, val_hidden
+                        )
+                        val_loss = criterion(val_targets, val_pi, val_mu, val_sigma)
+
+                        total_val_loss += val_loss.item()
+
+                print(
+                    "Epoch [{}/{}], validation loss: {:.4f}".format(
+                        epoch, num_epochs, total_val_loss
+                    )
+                )
+
+            if total_val_loss < min_val_loss:
+                torch.save(model.state_dict(), f"model_{epoch}_{total_val_loss}.pth")
+
+            model.train()
