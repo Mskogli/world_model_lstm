@@ -31,7 +31,7 @@ class AerialGymTrajDataset(Dataset):
         device: str,
         validation_split: float = 0.1,
         actions: bool = False,
-        states: List[States] = None,
+        states: List[States] = [],
     ) -> None:
         print("===LOADING DATASET===")
         with open(json_path) as file:
