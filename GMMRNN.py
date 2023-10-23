@@ -68,12 +68,12 @@ class GMMRNN(nn.Module):
         mu: torch.tensor,
         sigma: torch.tensor,
     ) -> float:
-        # beta_kl = 0.1  # weight of the KL divergence loss term
+        beta_kl = 0.1  # weight of the KL divergence loss term
 
         loglik_loss = gaussian_ll_loss(targets, logpi, mu, sigma)
-        # kl_loss = KL_divergence_loss(logpi, mu, sigma)
+        kl_loss = KL_divergence_loss(mu, sigma)
 
-        total_loss = loglik_loss
+        total_loss = loglik_loss + beta_kl*kl_loss
         return total_loss
 
 
