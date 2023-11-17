@@ -17,7 +17,7 @@ if __name__ == "__main__":
         device,
         actions=True,
     )
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=100, shuffle=False)
 
     seVAE = VAENetworkInterface(device=device)
 
@@ -49,6 +49,33 @@ if __name__ == "__main__":
 
     pred_next_latent = sample_gmm(pi, mu, sigma)
 
+    prev_hidden = hidden
+    future_actions = torch.tensor(
+        [
+            -0.11876555532217026,
+            -0.07435929775238037,
+            -0.5583888292312622,
+            0.040141552686691284,
+        ],
+        device=torch.device("cuda:0"),
+    ).view(1, 1, 4)
+    next_input = torch.cat((pred_next_latent.view(1, 1, -1), future_actions), -1)
+    fig = plt.figure(figsize=(3, 3))
+    fig = plt.figure(figsize=(20, 10), dpi=100, facecolor="w", edgecolor="k")
+    for i in range(20):
+        fig.add_subplot(2, 10, i + 1)
+        (logpi, mu, sigma), hidden = model(next_input, prev_hidden)
+        pi = torch.exp(logpi)
+        next_latent = sample_gmm(pi, mu, sigma)
+        next_input = torch.cat((next_latent.view(1, 1, -1), future_actions), -1)
+        pred_depth = seVAE.decode(next_latent.view(1, -1))
+        prev_hidden = hidden
+        plt.tick_params(
+            left=False, right=False, labelleft=False, labelbottom=False, bottom=False
+        )
+        plt.imshow(pred_depth.view(270, 480).cpu().detach().numpy())
+    plt.show()
+
     gt_depth_img = seVAE.decode(y[:, :, :128].view(1, -1))
     gt_depth_img_2 = seVAE.decode(z[:, :, :128].view(1, -1))
     pred_depth_img = seVAE.decode(pred_next_latent.view(1, -1))
@@ -67,3 +94,5 @@ if __name__ == "__main__":
     ax2.set_title("Predicted depth image at time t+5")
     plt.imshow(pred_depth_img.reshape(270, 480))
     plt.show()
+
+# %%

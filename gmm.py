@@ -22,30 +22,27 @@ def gaussian_ll_loss(
     targets: torch.tensor, logpi: torch.tensor, mu: torch.tensor, sigma: torch.tensor
 ) -> float:
     """
-    Computes the negative log likelihood of the targets under the predicted distribution of the latent space:
+    Calculates the negative log likelihood of the targets under the predicted distribution of the latent space:
     NLL = -logsumexp_k(log(pi_k) - 1/2(y - u)^T*Sigma^-1*(y - u) - 1/2log(det(Sigma)))
 
         Parameters:
-            targets (torch.tensor): latent targets (batch, seq_l, latent_dim)
-            logpi (torch.tensor): log mixing coeffs (batch, seq_l, n_gaussians)
-            mu (torch.tensor): predicted means (batch, seq_l, n_gaussians, latent_dim)
-            sigma (torch.tensor): predicted standard deviations (batch, seq_l, n_gaussians, latent_dim)
+            targets (batch, seq_l, latent_dim): latent targets
+            logpi (batch, seq_l, n_gaussians): log mixing coeffs
+            mu (batch, seq_l, n_gaussians, latent_dim): predicted means
+            sigma (batch, seq_l, n_gaussians, latent_dim): predicted standard deviations
     """
     z_score = (
         targets.unsqueeze(
             2
         )  # (batch, seq_l, latent_dim) -> (batch, seq_l, 1, latent_dim)
-        - mu  # (batch, seq_l, num_gaussians, latent_dim)
-    ) / sigma  # (batch, seq_l, num_gaussians, latent_dim)
+        - mu
+    ) / sigma
 
     normal_loglik = -1 / 2 * torch.einsum(
         "bsdc, bsdc ->bsd", z_score, z_score
     ) - torch.sum(torch.log(sigma), dim=-1)
 
-    loglik = torch.logsumexp(
-        logpi + normal_loglik, dim=2
-    )  # GMM LL normalized by sequence length
-
+    loglik = torch.logsumexp(logpi + normal_loglik, dim=2)
     loglik = loglik.mean()
 
     return -loglik
@@ -87,11 +84,10 @@ def sample_gmm(pi: torch.tensor, mu: torch.tensor, sigma: torch.tensor) -> torch
     Sample from a gaussian mixture model
 
         Parameters:
-            pi (n_gaussians)
-            mu (n_gaussians, gaussian_dim)
-            sigma (n_gaussians, gaussian_dim)
+            pi (n_gaussians): mixing coefficents
+            mu (n_gaussians, gaussian_dim): means
+            sigma (n_gaussians, gaussian_dim): standard deviations
     """
-
     categorical = Categorical(probs=pi)
     gaussians = Independent(Normal(loc=mu, scale=sigma), 1)
     mixture_dist = MixtureSameFamily(categorical, gaussians)
