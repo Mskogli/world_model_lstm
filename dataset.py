@@ -29,9 +29,8 @@ class AerialGymTrajDataset(Dataset):
         self,
         json_path: str,
         device: str,
-        validation_split: float = 0.1,
         actions: bool = False,
-        states: List[States] = None,
+        states: List[States] = [],
     ) -> None:
         print("===LOADING DATASET===")
         with open(json_path) as file:
@@ -49,7 +48,7 @@ class AerialGymTrajDataset(Dataset):
         json_object = ujson.loads(self.lines[idx])
 
         latents = [torch.tensor(json_object["latents"], device=self.device)]
-        # print(latents[0].size())
+
         actions = (
             [torch.tensor(json_object["action"], device=self.device)]
             if self.actions

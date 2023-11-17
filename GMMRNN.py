@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from typing import Tuple, Optional, List
-from gmm import gaussian_ll_loss, KL_divergence_loss
+from gmm import MDN_loss_function, MDN_loss_function_multivariate
 
 
 class GMMRNN(nn.Module):
@@ -25,16 +25,25 @@ class GMMRNN(nn.Module):
         self.hidden_dim = hidden_dim
         self.n_gaussians = n_gaussians
 
-        self.lstm = nn.LSTM(input_dim, hidden_dim, 1, batch_first=True)
-        self.fc1 = nn.Linear(hidden_dim, n_gaussians)
-        self.fc2 = nn.Linear(hidden_dim, n_gaussians * latent_dim)
-        self.fc3 = nn.Linear(hidden_dim, n_gaussians * latent_dim)
+        self.extras_fc = nn.Linear(input_dim, hidden_dim)
+
+        self.lstm = nn.LSTM(hidden_dim, hidden_dim, 1, batch_first=True)
+        self.pi_fc = nn.Linear(hidden_dim, n_gaussians)
+        self.mu_fc = nn.Linear(hidden_dim, n_gaussians * latent_dim)
+        self.sigma_fc = nn.Linear(hidden_dim, n_gaussians * latent_dim)
 
         self.device = torch.device(device)
 
     def forward(
-        self, x: torch.Tensor, h: Optional[torch.Tensor] = None
+        self,
+        latent: torch.Tensor,
+        extras: torch.Tensor,
+        h: Optional[torch.Tensor] = None,
     ) -> Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]:  # (3,2)-tuple
+        x = torch.cat((latent, extras), -1)
+        x = self.extras_fc(x)
+        x = F.elu(x)
+
         y, hidden = self.lstm(x, h)
         pi, mu, sigma = self.get_guassian_coeffs(y)
         return (pi, mu, sigma), hidden
@@ -44,7 +53,7 @@ class GMMRNN(nn.Module):
     ) -> Tuple[torch.Tensor, ...]:  # 3-tuple
         sequence_length = y.size(1)
 
-        pi, mu, sigma = self.fc1(y), self.fc2(y), self.fc3(y)
+        pi, mu, sigma = self.pi_fc(y), self.mu_fc(y), self.sigma_fc(y)
 
         pi = pi.view(-1, sequence_length, self.n_gaussians)
         mu = mu.view(-1, sequence_length, self.n_gaussians, self.latent_dim)
@@ -68,11 +77,7 @@ class GMMRNN(nn.Module):
         mu: torch.tensor,
         sigma: torch.tensor,
     ) -> float:
-        # beta_kl = 0.1  # weight of the KL divergence loss term
-
-        loglik_loss = gaussian_ll_loss(targets, logpi, mu, sigma)
-        # kl_loss = KL_divergence_loss(logpi, mu, sigma)
-
+        loglik_loss = MDN_loss_function(targets, logpi, mu, sigma)
         total_loss = loglik_loss
         return total_loss
 

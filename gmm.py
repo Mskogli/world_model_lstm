@@ -1,6 +1,21 @@
 import torch
+import numpy as np
 
-from torch.distributions import Normal, Categorical, MixtureSameFamily, Independent
+from torch.distributions import (
+    Normal,
+    Categorical,
+    MixtureSameFamily,
+    Independent,
+    kl_divergence,
+)
+
+
+def logavgexp(x: torch.tensor, dim: int) -> torch.tensor:
+    if x.size(dim) > 1:
+        # TODO: cast to float32 here for IWAE?
+        return x.logsumexp(dim=dim) - np.log(x.size(dim))
+    else:
+        return x.squeeze(dim)
 
 
 def gaussian_ll_loss(
@@ -36,17 +51,35 @@ def gaussian_ll_loss(
     return -loglik
 
 
-def KL_divergence_loss(
-    logpi: torch.tensor, mu: torch.tensor, sigma: torch.tensor
+def MDN_loss_function(
+    targets: torch.tensor, logpi: torch.tensor, mu: torch.tensor, sigma: torch.tensor
 ) -> float:
-    """
-    Calculates the KL-divergence between p and q where p is an arbitrary gaussian distribution and q is the a gaussian with zero mean and unit variance
-    KL = 1/2*sum_1_J(1 + log((sigma)^2) - mu^2 + sigma^2)
+    targets = targets.unsqueeze(2)
+    post_z = Independent(Normal(mu, sigma), 1)  # Posteriror Z dist = Diagnonal Normal
 
-    see https://arxiv.org/pdf/1312.6114.pdf - Appendix B
-    """
+    logprobs = post_z.log_prob(targets)
+    weighted_logprobs = logpi + logprobs  # Sum (-1)
 
-    pass
+    max_log_probs = torch.max(weighted_logprobs, dim=-1, keepdim=True)[0]
+    weighted_logprobs = weighted_logprobs - max_log_probs
+
+    probs = torch.exp(weighted_logprobs)
+    probs = torch.sum(probs, dim=-1)
+
+    logprobs = max_log_probs.squeeze() + torch.log(probs)
+
+    nll_loss = -torch.mean(logprobs)
+
+    beta = 0
+    prior_z = Independent(
+        Normal(torch.zeros_like(mu), torch.ones_like(sigma)), 1
+    )  # ~ Normal(0,1)
+    kl_div_loss = kl_divergence(post_z, prior_z).mean()
+    # kl_div_loss = logavgexp(kl_div_loss, dim=2).mean()
+
+    total_loss = nll_loss + beta * kl_div_loss
+
+    return total_loss
 
 
 def sample_gmm(pi: torch.tensor, mu: torch.tensor, sigma: torch.tensor) -> torch.tensor:
@@ -60,10 +93,7 @@ def sample_gmm(pi: torch.tensor, mu: torch.tensor, sigma: torch.tensor) -> torch
     """
 
     categorical = Categorical(probs=pi)
-    # gaussians = [Normal(loc=mu[i], scale=sigma[i]) for i in range(pi.shape[0])]
-
     gaussians = Independent(Normal(loc=mu, scale=sigma), 1)
-
     mixture_dist = MixtureSameFamily(categorical, gaussians)
 
     sample = mixture_dist.sample()
@@ -78,4 +108,3 @@ if __name__ == "__main__":
     pi = softmax(torch.rand(2))
 
     sample = sample_gmm(pi, mu, sigma)
-    print("sample: ", sample)
