@@ -1,3 +1,4 @@
+# %%
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,24 +11,23 @@ from dataset import AerialGymTrajDataset
 from sevae.inference.scripts.VAENetworkInterface import VAENetworkInterface
 
 if __name__ == "__main__":
-    device = torch.device("cpu")
+    context_length = 40
+    prediction_length = 1
 
+    device = torch.device("cuda:0")
     dataset = AerialGymTrajDataset(
-        "/Users/mathias/Documents/trajectories.jsonl",
+        "/home/mathias/Dokumenter/dev_2/aerial_gym_simulator/aerial_gym/rl_training/rl_games/static_object_exp.jsonl",
         device,
         actions=True,
     )
-    dataloader = DataLoader(dataset, batch_size=100, shuffle=False)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+    seVAE = VAENetworkInterface()
+    model = GMMRNN(input_dim=132, latent_dim=128, hidden_dim=1024, n_gaussians=10).to(
+        device
+    )
 
-    seVAE = VAENetworkInterface(device=device)
-
-    model = GMMRNN(
-        input_dim=132, latent_dim=128, hidden_dim=512, n_gaussians=5, device=device
-    ).to(device)
     model.load_state_dict(
-        torch.load(
-            "/Users/mathias/dev/world_model_lstm/runs/13:31:42.338124/model_9_1981.7920227050781.pth"
-        )
+        torch.load("/home/mathias/Dokumenter/dev_2/world_model_lstm/runs/10_gaussians_pred_1/model_130_2549.6763610839844.pth")
     )
     model.eval()
 
@@ -35,64 +35,60 @@ if __name__ == "__main__":
     hidden = model.init_hidden_state(1)
 
     zero = np.random.randint(data.size(0))
-    one = np.random.randint(data.size(1))
 
-    x = data[zero : zero + 1, 0:82, :]
-    y = data[zero : zero + 1, 86:87, :]
-    z = data[zero : zero + 1, 81:82, :]
+    traj_context = data[:, 0:context_length, :]
 
-    (logpi, mu, sigma), hidden = model(x[:, :, :128], x[:, :, 128:], hidden)
+
+    (logpi, mu, sigma), hidden = model(traj_context[..., :model.latent_dim], traj_context[..., model.latent_dim:], hidden)
 
     pi = torch.exp(logpi[:, -1, :]).view(-1)
-    mu = mu[:, -1, :, :].view(5, 128)
-    sigma = sigma[:, -1, :, :].view(5, 128)
-
+    mu = mu[:, -1, :, :].view(model.n_gaussians, model.latent_dim)
+    sigma = sigma[:, -1, :, :].view(model.n_gaussians, model.latent_dim)
     pred_next_latent = sample_gmm(pi, mu, sigma)
 
-    prev_hidden = hidden
-    future_actions = torch.tensor(
-        [
-            -0.11876555532217026,
-            -0.07435929775238037,
-            -0.5583888292312622,
-            0.040141552686691284,
-        ],
-        device=torch.device("cuda:0"),
-    ).view(1, 1, 4)
-    next_input = torch.cat((pred_next_latent.view(1, 1, -1), future_actions), -1)
-    fig = plt.figure(figsize=(3, 3))
-    fig = plt.figure(figsize=(20, 10), dpi=100, facecolor="w", edgecolor="k")
-    for i in range(20):
-        fig.add_subplot(2, 10, i + 1)
-        (logpi, mu, sigma), hidden = model(next_input, prev_hidden)
-        pi = torch.exp(logpi)
-        next_latent = sample_gmm(pi, mu, sigma)
-        next_input = torch.cat((next_latent.view(1, 1, -1), future_actions), -1)
-        pred_depth = seVAE.decode(next_latent.view(1, -1))
-        prev_hidden = hidden
-        plt.tick_params(
-            left=False, right=False, labelleft=False, labelbottom=False, bottom=False
-        )
-        plt.imshow(pred_depth.view(270, 480).cpu().detach().numpy())
-    plt.show()
+    #dreamed_latent, _ = model.dream(5, hidden, mu)
 
-    gt_depth_img = seVAE.decode(y[:, :, :128].view(1, -1))
-    gt_depth_img_2 = seVAE.decode(z[:, :, :128].view(1, -1))
+    current_latent = data[:, context_length - 1:context_length, :]
+    gt_next_latent = data[:, context_length:context_length + prediction_length, :]
+
+
+    current_depth_img = seVAE.decode(current_latent[:, :, :model.latent_dim].view(1, -1)) 
+    gt_depth_img = seVAE.decode(gt_next_latent[:, :, :model.latent_dim].view(1, -1))
     pred_depth_img = seVAE.decode(pred_next_latent.view(1, -1))
+    #dreamed_depth_img = seVAE.decode(dreamed_latent.view(1, -1))
 
-    print(pred_depth_img)
 
-    fig = plt.figure(figsize=(1, 3))
-    fig = plt.figure(figsize=(12, 8), dpi=100, facecolor="w", edgecolor="k")
-    ax1 = fig.add_subplot(1, 3, 1)
-    ax1.set_title("Depth image at time t")
-    plt.imshow(gt_depth_img_2.reshape(270, 480))
-    ax3 = fig.add_subplot(1, 3, 2)
-    ax3.set_title("GT depth image predition at time t+5")
-    plt.imshow(gt_depth_img.reshape(270, 480))
-    ax2 = fig.add_subplot(1, 3, 3)
-    ax2.set_title("Predicted depth image at time t+5")
+    fig = plt.figure(figsize=(12, 4), dpi=100, facecolor="w", edgecolor="k")
+
+    ax1 = fig.add_subplot(1,3,1)
+    ax1.set_title("$l_t$")
+    ax1.axhline(y=113, color='r', linewidth=0.5)
+    plt.imshow(current_depth_img.reshape(270, 480))
+    plt.axis("off")
+
+    ax2 = fig.add_subplot(1,3,2)
+    ax2.set_title("$\hat l_{t+1}$")
     plt.imshow(pred_depth_img.reshape(270, 480))
-    plt.show()
+    ax2.axhline(y=113, color='r', linewidth=0.5)
+    plt.axis("off")
 
-# %%
+    ax3 = fig.add_subplot(1,3,3)
+    ax3.set_title("$l_{t+1}$")
+    plt.imshow(gt_depth_img.reshape(270, 480))
+    ax3.axhline(y=113, color='r', linewidth=0.5)
+    plt.axis("off")
+
+ 
+    fig2 = plt.figure(figsize=(30, 5), dpi=100, facecolor="w", edgecolor="k")
+
+    for i in range(model.n_gaussians):
+        print(pi[i].round(decimals=1).item())
+        model_pred_depth_img = seVAE.decode(mu[i, :].view(1, -1))
+        ax = fig2.add_subplot(2, int(model.n_gaussians/2), i+1)
+        ax.set_title(f"$p ={round(pi[i].item(), 3)}$")
+        plt.imshow(model_pred_depth_img.reshape(270, 480))
+        ax.axhline(y=135, color='r', linewidth=0.5)
+        plt.axis("off")
+
+
+    plt.show()

@@ -3,7 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from typing import Tuple, Optional, List
-from gmm import MDN_loss_function, MDN_loss_function_multivariate
+from gmm import MDN_loss_function, sample_gmm
+from sevae.inference.scripts.VAENetworkInterface import VAENetworkInterface
+
+import matplotlib.pyplot as plt
+
 
 
 class GMMRNN(nn.Module):
@@ -29,10 +33,11 @@ class GMMRNN(nn.Module):
 
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, 1, batch_first=True)
         self.pi_fc = nn.Linear(hidden_dim, n_gaussians)
-        self.mu_fc = nn.Linear(hidden_dim, n_gaussians * latent_dim)
-        self.sigma_fc = nn.Linear(hidden_dim, n_gaussians * latent_dim)
+        self.mu_fc = nn.Linear(hidden_dim, (n_gaussians * latent_dim))
+        self.sigma_fc = nn.Linear(hidden_dim, (n_gaussians * latent_dim))
 
         self.device = torch.device(device)
+        self.seVAE = VAENetworkInterface(device=self.device)
 
     def forward(
         self,
@@ -40,6 +45,7 @@ class GMMRNN(nn.Module):
         extras: torch.Tensor,
         h: Optional[torch.Tensor] = None,
     ) -> Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]:  # (3,2)-tuple
+        
         x = torch.cat((latent, extras), -1)
         x = self.extras_fc(x)
         x = F.elu(x)
@@ -70,6 +76,29 @@ class GMMRNN(nn.Module):
             torch.zeros(1, batch_size, self.hidden_dim).to(self.device),
         )
 
+    def dream(self, horizon: int, prev_hidden: torch.Tensor, prev_latent: torch.Tensor) -> torch.Tensor:
+        actions = torch.tensor([0, 0, 0, 0], device=self.device).view(-1, 1, 4)
+        h = prev_hidden
+        l = prev_latent
+
+        fig2 = plt.figure(figsize=(30, 5), dpi=100, facecolor="w", edgecolor="k")
+        for i in range(horizon):
+            
+            (logpi, mu, sigma), hidden = self.forward(l.view(1, 1, -1), actions, h)
+            pi = torch.exp(logpi)
+            l = mu
+            h = hidden
+
+            model_pred_depth_img = self.seVAE.decode(l.view(1, -1))
+            ax = fig2.add_subplot(1, horizon, i+1)
+            ax.set_title(f"$l_{i} $")
+            ax.axhline(y=70, color='r', linewidth=0.5)
+            plt.imshow(model_pred_depth_img.reshape(270, 480))
+            plt.axis("off")
+        
+        plt.show()
+        return l, h
+
     def loss_criterion(
         self,
         targets: torch.tensor,
@@ -77,9 +106,8 @@ class GMMRNN(nn.Module):
         mu: torch.tensor,
         sigma: torch.tensor,
     ) -> float:
-        loglik_loss = MDN_loss_function(targets, logpi, mu, sigma)
-        total_loss = loglik_loss
-        return total_loss
+        loglik_loss = MDN_loss_function(targets, logpi, mu, sigma, beta=0)
+        return loglik_loss
 
 
 def detach(states: torch.Tensor) -> List[torch.Tensor]:

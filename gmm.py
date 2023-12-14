@@ -9,7 +9,6 @@ from torch.distributions import (
     kl_divergence,
 )
 
-
 def logavgexp(x: torch.tensor, dim: int) -> torch.tensor:
     if x.size(dim) > 1:
         # TODO: cast to float32 here for IWAE?
@@ -17,42 +16,11 @@ def logavgexp(x: torch.tensor, dim: int) -> torch.tensor:
     else:
         return x.squeeze(dim)
 
-
-def gaussian_ll_loss(
-    targets: torch.tensor, logpi: torch.tensor, mu: torch.tensor, sigma: torch.tensor
-) -> float:
-    """
-    Calculates the negative log likelihood of the targets under the predicted distribution of the latent space:
-    NLL = -logsumexp_k(log(pi_k) - 1/2(y - u)^T*Sigma^-1*(y - u) - 1/2log(det(Sigma)))
-
-        Parameters:
-            targets (batch, seq_l, latent_dim): latent targets
-            logpi (batch, seq_l, n_gaussians): log mixing coeffs
-            mu (batch, seq_l, n_gaussians, latent_dim): predicted means
-            sigma (batch, seq_l, n_gaussians, latent_dim): predicted standard deviations
-    """
-    z_score = (
-        targets.unsqueeze(
-            2
-        )  # (batch, seq_l, latent_dim) -> (batch, seq_l, 1, latent_dim)
-        - mu
-    ) / sigma
-
-    normal_loglik = -1 / 2 * torch.einsum(
-        "bsdc, bsdc ->bsd", z_score, z_score
-    ) - torch.sum(torch.log(sigma), dim=-1)
-
-    loglik = torch.logsumexp(logpi + normal_loglik, dim=2)
-    loglik = loglik.mean()
-
-    return -loglik
-
-
 def MDN_loss_function(
-    targets: torch.tensor, logpi: torch.tensor, mu: torch.tensor, sigma: torch.tensor
+    targets: torch.tensor, logpi: torch.tensor, mu: torch.tensor, sigma: torch.tensor, beta: int = 0
 ) -> float:
     targets = targets.unsqueeze(2)
-    post_z = Independent(Normal(mu, sigma), 1)  # Posteriror Z dist = Diagnonal Normal
+    post_z = Independent(Normal(mu, sigma), 1)  # Posteriror Z dist = Diagonal Normal
 
     logprobs = post_z.log_prob(targets)
     weighted_logprobs = logpi + logprobs  # Sum (-1)
@@ -67,7 +35,6 @@ def MDN_loss_function(
 
     nll_loss = -torch.mean(logprobs)
 
-    beta = 0
     prior_z = Independent(
         Normal(torch.zeros_like(mu), torch.ones_like(sigma)), 1
     )  # ~ Normal(0,1)

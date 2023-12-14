@@ -2,7 +2,13 @@ import torch
 import ujson
 
 from torch.utils.data import Dataset, random_split
-from typing import Literal, List, Tuple
+
+# Literal introduced in python 3.8
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+from typing import List, Tuple
 
 States = Literal[
     "full state",
@@ -50,7 +56,7 @@ class AerialGymTrajDataset(Dataset):
         latents = [torch.tensor(json_object["latents"], device=self.device)]
 
         actions = (
-            [torch.tensor(json_object["action"], device=self.device)]
+            [torch.tensor(json_object["actions"], device=self.device)]
             if self.actions
             else []
         )
