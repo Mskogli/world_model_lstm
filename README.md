@@ -4,7 +4,7 @@ Developed during my semester project, the PWM was trained to predict the latent 
 
 ### Image 1 Description
 
-![Image 1 Alt Text](link-to-image-1.jpg)
+![Image 1 Alt Text](assets/PWM.png)
 
 ### Image 2 Description
 
