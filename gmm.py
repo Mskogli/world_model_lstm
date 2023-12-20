@@ -20,10 +20,10 @@ def MDN_loss_function(
     targets: torch.tensor, logpi: torch.tensor, mu: torch.tensor, sigma: torch.tensor, beta: int = 0
 ) -> float:
     targets = targets.unsqueeze(2)
-    post_z = Independent(Normal(mu, sigma), 1)  # Posteriror Z dist = Diagonal Normal
+    post_z = Independent(Normal(mu, sigma), 1)
 
     logprobs = post_z.log_prob(targets)
-    weighted_logprobs = logpi + logprobs  # Sum (-1)
+    weighted_logprobs = logpi + logprobs 
 
     max_log_probs = torch.max(weighted_logprobs, dim=-1, keepdim=True)[0]
     weighted_logprobs = weighted_logprobs - max_log_probs
@@ -39,7 +39,6 @@ def MDN_loss_function(
         Normal(torch.zeros_like(mu), torch.ones_like(sigma)), 1
     )  # ~ Normal(0,1)
     kl_div_loss = kl_divergence(post_z, prior_z).mean()
-    # kl_div_loss = logavgexp(kl_div_loss, dim=2).mean()
 
     total_loss = nll_loss + beta * kl_div_loss
 
@@ -58,9 +57,9 @@ def sample_gmm(pi: torch.tensor, mu: torch.tensor, sigma: torch.tensor) -> torch
     categorical = Categorical(probs=pi)
     gaussians = Independent(Normal(loc=mu, scale=sigma), 1)
     mixture_dist = MixtureSameFamily(categorical, gaussians)
-
     sample = mixture_dist.sample()
-    return sample
+    trace = torch.sum(mixture_dist.variance, -1)
+    return sample, trace
 
 
 if __name__ == "__main__":

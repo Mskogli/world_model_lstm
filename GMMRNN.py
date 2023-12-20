@@ -9,7 +9,6 @@ from sevae.inference.scripts.VAENetworkInterface import VAENetworkInterface
 import matplotlib.pyplot as plt
 
 
-
 class GMMRNN(nn.Module):
     """
     LSTM based world model which predicts the distribution over the next latent. The hidden state h serves as a compact
@@ -21,7 +20,7 @@ class GMMRNN(nn.Module):
         input_dim=128,
         latent_dim: int = 128,
         hidden_dim: int = 256,
-        n_gaussians=5,
+        n_gaussians: int = 5,
         device: str = "cuda:0",
     ) -> None:
         super(GMMRNN, self).__init__()
@@ -31,7 +30,7 @@ class GMMRNN(nn.Module):
 
         self.extras_fc = nn.Linear(input_dim, hidden_dim)
 
-        self.lstm = nn.LSTM(hidden_dim, hidden_dim, 1, batch_first=True)
+        self.lstm = nn.LSTM(input_dim, hidden_dim, 1, batch_first=True)
         self.pi_fc = nn.Linear(hidden_dim, n_gaussians)
         self.mu_fc = nn.Linear(hidden_dim, (n_gaussians * latent_dim))
         self.sigma_fc = nn.Linear(hidden_dim, (n_gaussians * latent_dim))
@@ -47,8 +46,8 @@ class GMMRNN(nn.Module):
     ) -> Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]:  # (3,2)-tuple
         
         x = torch.cat((latent, extras), -1)
-        x = self.extras_fc(x)
-        x = F.elu(x)
+        #x = self.extras_fc(x)
+        #x = F.elu(x)
 
         y, hidden = self.lstm(x, h)
         pi, mu, sigma = self.get_guassian_coeffs(y)
@@ -76,26 +75,34 @@ class GMMRNN(nn.Module):
             torch.zeros(1, batch_size, self.hidden_dim).to(self.device),
         )
 
-    def dream(self, horizon: int, prev_hidden: torch.Tensor, prev_latent: torch.Tensor) -> torch.Tensor:
-        actions = torch.tensor([0, 0, 0, 0], device=self.device).view(-1, 1, 4)
+    def dream(self, horizon: int, prev_hidden: torch.Tensor, prev_latent: torch.Tensor, gt_dream: torch.tensor) -> torch.Tensor:
+        actions = torch.tensor([0, 0, -0.5, 0.2], device=self.device).view(-1, 1, 4)
         h = prev_hidden
         l = prev_latent
 
-        fig2 = plt.figure(figsize=(30, 5), dpi=100, facecolor="w", edgecolor="k")
+        fig1 = plt.figure(figsize=(60, 5), dpi=100, facecolor="w", edgecolor="k")
         for i in range(horizon):
-            
+            actions = gt_dream[:, i, 128:].view(1, 1, -1)
             (logpi, mu, sigma), hidden = self.forward(l.view(1, 1, -1), actions, h)
-            pi = torch.exp(logpi)
-            l = mu
-            h = hidden
 
+            pi = torch.exp(logpi[:, -1, :]).view(-1)
+            mu = mu[:, -1, :, :].view(self.n_gaussians, self.latent_dim)
+            sigma = sigma[:, -1, :, :].view(self.n_gaussians, self.latent_dim)
+            l, _ = sample_gmm(pi, mu, sigma)
+            h = hidden
+            
             model_pred_depth_img = self.seVAE.decode(l.view(1, -1))
-            ax = fig2.add_subplot(1, horizon, i+1)
-            ax.set_title(f"$l_{i} $")
-            ax.axhline(y=70, color='r', linewidth=0.5)
-            plt.imshow(model_pred_depth_img.reshape(270, 480))
-            plt.axis("off")
-        
+            ax1 = fig1.add_subplot(2, horizon, i+1)
+            ax1.set_title(r"$\hat l_{t+%d}$" % (1 + i), fontsize=22)
+            ax1.imshow(model_pred_depth_img.reshape(270, 480))
+            ax1.axis("off")
+
+            gt_depth_img = self.seVAE.decode(gt_dream[:, i, :self.latent_dim].view(1, -1))
+            ax1 = fig1.add_subplot(2, horizon, i+1+horizon)
+            ax1.set_title(r"$l_{t+%d}$" % (1 + i), fontsize=22)
+            ax1.imshow(gt_depth_img.reshape(270, 480))
+            ax1.axis("off")
+
         plt.show()
         return l, h
 

@@ -22,7 +22,7 @@ States = Literal[
 # The state is logged as 13 element vector in the dataset
 StateIndices = {
     "full state": [0, 16],
-    "goal_position": [0, 3],
+    "goal_position": [0, 4],
     "position": [3, 6],
     "attitude": [6, 10],
     "linear velocities": [10, 13],
@@ -55,11 +55,12 @@ class AerialGymTrajDataset(Dataset):
 
         latents = [torch.tensor(json_object["latents"], device=self.device)]
 
-        actions = (
-            [torch.tensor(json_object["actions"], device=self.device)]
+        action = (
+            [torch.tensor(json_object["action"], device=self.device)]
             if self.actions
             else []
         )
+
         states = [
             torch.tensor(
                 json_object["states"],
@@ -68,7 +69,7 @@ class AerialGymTrajDataset(Dataset):
             for state in self.states
         ]
 
-        item = torch.cat(latents + states + actions, 1)
+        item = torch.cat(latents + states + action, 1)
 
         return item
 
@@ -76,7 +77,6 @@ class AerialGymTrajDataset(Dataset):
 def split_dataset(
     dataset: AerialGymTrajDataset, val_split: float
 ) -> Tuple[AerialGymTrajDataset, ...]:  # 2 tuple
-    # Compute the train and val splits
 
     total_samples = len(dataset.lines)
     train_len = int(total_samples * (1 - val_split))

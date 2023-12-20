@@ -2,9 +2,9 @@ import os
 import torch
 import argparse
 import datetime
+import numpy as np
 
 from torch.utils.data import DataLoader
-from torch.nn.utils import clip_grad_norm_
 
 from GMMRNN import GMMRNN, detach
 from dataset import AerialGymTrajDataset, split_dataset
@@ -23,10 +23,10 @@ def parse_arguments():
         "--seq_length", type=int, default=92, help="Length of input sequences"
     )
     parser.add_argument(
-        "--num_epochs", type=int, default=500, help="Number of training epochs"
+        "--num_epochs", type=int, default=200, help="Number of training epochs"
     )
     parser.add_argument(
-        "--device", type=str, default="cpu", help="Training device, e.g. cuda:0"
+        "--device", type=str, default="cuda:0", help="Training device, e.g. cuda:0"
     )
     parser.add_argument("--traj_length", type=int, default=97, help="Trajectory length")
 
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
     model = GMMRNN(
-        input_dim=132, latent_dim=128, hidden_dim=1024, n_gaussians=1, device=device
+        input_dim=132, latent_dim=128, hidden_dim=2048, n_gaussians=1, device=device
     ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", patience=2)
@@ -68,6 +68,7 @@ if __name__ == "__main__":
 
     prediction_length = 1
     seq_length = traj_length - prediction_length
+    val_losses = []
     for epoch in range(num_epochs):
         for batch in train_loader:
             hidden = model.init_hidden_state(batch.size(0))
@@ -124,7 +125,7 @@ if __name__ == "__main__":
                     epoch, num_epochs, total_val_loss
                 )
             )
-
+        val_losses.append(total_val_loss)
         if total_val_loss < min_val_loss:
             min_val_loss = total_val_loss
             torch.save(
@@ -132,3 +133,6 @@ if __name__ == "__main__":
             )
 
         model.train()
+    
+    with open("2048-200.npy", "wb") as f:
+        np.save(f, np.array(val_losses))
