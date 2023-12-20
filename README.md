@@ -8,6 +8,6 @@ Developed during my semester project, the PWM was trained to predict the latent 
 
 ### Image 2 Description
 
-![Image 2 Alt Text](link-to-image-2.jpg)
+![Image 1 Alt Text](assets/PWM.pdf)
 
 
